@@ -1,0 +1,14 @@
+{
+  "name": "mentra-facescan",
+  "module": "index.ts",
+  "type": "module",
+  "devDependencies": {
+    "@types/bun": "latest"
+  },
+  "peerDependencies": {
+    "typescript": "^5"
+  },
+  "dependencies": {
+    "@mentra/sdk": "^2.1.28"
+  }
+}
