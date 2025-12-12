@@ -1,13 +1,13 @@
 import { AppServer, AppSession} from '@mentra/sdk';
-import { GoogleGenerativeAI } from '@google/generative-ai'
+import { GoogleGenAI } from '@google/genai'
 import FormData from 'form-data';
 
-const GEMINI_API_KEY = process.env.GEMINI_API_KEY ?? (() => { throw new Error("GEMINI_API_KEY is not set in .env file");});
+const GEMINI_API_KEY = process.env.GEMINI_API_KEY ?? (() => { throw new Error("GEMINI_API_KEY is not set in .env file");})();
 const PACKAGE_NAME = process.env.PACKAGE_NAME ?? (() => {throw new Error('PACKAGE_NAME is not set in .env file'); })();
 const MENTRAOS_API_KEY = process.env.MENTRAOS_API_KEY ?? (() => { throw new Error('MENTRAOS_API_KEY is not set in .env file'); })();
 const PORT = parseInt(process.env.PORT || '3000');
 
-const genAI = new GoogleGenerativeAI(GEMINI_API_KEY);
+const ai = new GoogleGenAI({ apiKey: GEMINI_API_KEY });
 
 async function extractPersonInfo(conversation: string): Promise<{
     name?: string;
@@ -15,8 +15,6 @@ async function extractPersonInfo(conversation: string): Promise<{
     context?: string;
     details?: string;
 }> {
-    const model = genAI.getGenerativeModel({model: 'gemini-1.5-flash'});
-
     const prompt = `
     I just met someone and had the following conversation after asking, "What's your name?":
 
@@ -24,15 +22,19 @@ async function extractPersonInfo(conversation: string): Promise<{
     Extract any information about this person. Return ONLY valid JSON (no markdown, no backticks):
     {
         "name": "their name or null if not mentioned",
-        "workplace": "where they works/study/major or null",
+        "workplace": "where they work/study/major or null",
         "context": "how/where we met or null",
         "details": "any other notable info or null"
     }`;
 
-    const result = await model.generateContent(prompt);
-    const text = result.response.text();
+    const response = await ai.models.generateContent({
+        model: 'gemini-2.5-flash',
+        contents: prompt,
+    });
 
-    try{
+    const text = response.text ?? '';
+
+    try {
         return JSON.parse(text);
     } catch {
         console.error('Failed to parse Gemini response:', text);
@@ -87,10 +89,10 @@ class MentraOSApp extends AppServer{
 
             // Trigger phrase to start collecting
             if(command.includes("hey, what's your name") || command.includes("hey, whats your name")){
-                if (!session.capabilities?.hasCamera) {
-                    console.error('No camera available');
-                    return;
-                }
+                // if (!session.capabilities?.hasCamera) {
+                //     console.error('No camera available');
+                //     return;
+                // }
                 try {
                     this.isCollecting = true;
                     this.conversationBuffer = [];
