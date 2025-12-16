@@ -60,24 +60,35 @@ class MentraOSApp extends AppServer{
 
         session.events.onTranscription(async(data) => {
             console.log('Transcription received:', data.text, 'isFinal:', data.isFinal);
-        
-            if (this.isCollecting && data.isFinal) {
-                const text = data.text.toLowerCase();
-                
-                if (text.includes("nice to meet you") || text.includes("nice meeting you") || text.includes("catch you later")) {
-                    this.isCollecting = false;
-                    const fullConversation = this.conversationBuffer.join(' ');
-                    console.log('📝 Farewell detected! Conversation:', fullConversation);
-                    session.layouts.showTextWall(`Heard: ${fullConversation}`);
-                    const personInfo = await extractPersonInfo(fullConversation);
-                    console.log('Extracted info:', personInfo);
-                    this.conversationBuffer = [];
-                    return;
+
+            // Handle conversation collection
+            if (this.isCollecting) {
+                if (data.isFinal) {
+                    this.conversationBuffer.push(data.text);
+                    console.log('📝 Buffered:', data.text);
+                    
+                    const text = data.text.toLowerCase();
+                    
+                    // Check for farewell phrase
+                    if (text.includes("nice to meet you") || text.includes("nice meeting you") || text.includes("catch you later")) {
+                        this.isCollecting = false;
+                        const fullConversation = this.conversationBuffer.join(' ');
+                        console.log('📝 Farewell detected! Conversation:', fullConversation);
+                        
+                        const personInfo = await extractPersonInfo(fullConversation);
+                        console.log('Extracted info:', personInfo);
+
+                        await fetch("http://localhost:8000/people", {
+                            method: "POST",
+                            headers: {"Content-Type": "application/json"},
+                            body: JSON.stringify(personInfo)
+                        });
+
+                        this.conversationBuffer = [];
+                        return;
+                    }
                 }
-            
-                this.conversationBuffer.push(data.text);
-                console.log('📝 Buffered:', data.text);
-                return;
+                return; 
             }
 
             if(!data.isFinal) return;
@@ -89,10 +100,6 @@ class MentraOSApp extends AppServer{
 
             // Trigger phrase to start collecting
             if(command.includes("hey, what's your name") || command.includes("hey, whats your name")){
-                // if (!session.capabilities?.hasCamera) {
-                //     console.error('No camera available');
-                //     return;
-                // }
                 try {
                     this.isCollecting = true;
                     this.conversationBuffer = [];
@@ -109,17 +116,22 @@ class MentraOSApp extends AppServer{
                         .catch(err => {
                             console.error("Photo failed", err);
                         });
-                    session.layouts.showTextWall('Visage is listening...');
 
+                    // Timeout after 20 seconds
                     setTimeout(async () => {
                         if (this.isCollecting) {
                             this.isCollecting = false;
                             const fullConversation = this.conversationBuffer.join(' ');
                             console.log('📝 Timeout! Conversation:', fullConversation);
-                            session.layouts.showTextWall(`Heard: ${fullConversation}`);
                             
                             const personInfo = await extractPersonInfo(fullConversation);
                             console.log('📋 Extracted info:', personInfo);
+
+                            await fetch("http://localhost:8000/people",{
+                                method: "POST",
+                                headers: {"Content-Type": "application/json"},
+                                body: JSON.stringify(personInfo)
+                            });
 
                             this.conversationBuffer = [];
                         }
