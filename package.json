@@ -1,5 +1,5 @@
 {
-  "name": "mentra-facescan",
+  "name": "visage",
   "module": "index.ts",
   "type": "module",
   "private": true,
@@ -14,6 +14,8 @@
     "typescript": "^5"
   },
   "dependencies": {
+    "@google/genai": "^1.33.0",
+    "@google/generative-ai": "^0.24.1",
     "@mentra/sdk": "^2.1.28"
   }
 }
