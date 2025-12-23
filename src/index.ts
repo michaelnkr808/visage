@@ -81,7 +81,7 @@ class MentraOSApp extends AppServer {
                             return;
                         }
 
-                        const response = await fetch(`${BACKEND_URL}/api/workflow1/first-meeting`, {
+                        const response = await fetch(`${config.BACKEND_URL}/api/workflow1/first-meeting`, {
                             method: "POST",
                             headers: { "Content-Type": "application/x-www-form-urlencoded" },
                             body: new URLSearchParams({
@@ -147,7 +147,7 @@ class MentraOSApp extends AppServer {
                                 return;
                             }
 
-                            const response = await fetch(`${BACKEND_URL}/api/workflow1/first-meeting`, {
+                            const response = await fetch(`${config.BACKEND_URL}/api/workflow1/first-meeting`, {
                                 method: "POST",
                                 headers: {
                                     'Content-Type': 'application/x-www-form-urlencoded',
