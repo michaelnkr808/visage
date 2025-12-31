@@ -22,17 +22,22 @@ async function extractPersonInfo(conversation: string): Promise<{
         "details": "any other notable info or null"
     }`;
 
-    const response = await ai.models.generateContent({
-        model: 'gemini-2.5-flash',
-        contents: prompt,
-    });
-
-    const text = response.text ?? '';
-
     try {
-        return JSON.parse(text);
-    } catch {
-        console.error('Failed to parse Gemini response:', text);
+        const response = await ai.models.generateContent({
+            model: 'gemini-2.5-flash',
+            contents: prompt,
+        });
+
+        const text = response.text ?? '';
+        
+        try {
+            return JSON.parse(text);
+        } catch (parseError) {
+            console.error('Failed to parse Gemini response:', text);
+            return {};
+        }
+    } catch (apiError) {
+        console.error('Gemini API error:', apiError);
         return {};
     }
 }
@@ -78,21 +83,34 @@ class MentraOSApp extends AppServer {
 
                         if (!base64Image) {
                             console.error('❌ No photo was captured');
+                            await session.audio.speak("Visage couldn't capture a photo");
                             return;
                         }
 
-                        const response = await fetch(`${config.BACKEND_URL}/api/workflow1/first-meeting`, {
-                            method: "POST",
-                            headers: { "Content-Type": "application/x-www-form-urlencoded" },
-                            body: new URLSearchParams({
-                                image_data: base64Image,
-                                name: personInfo.name || '',
-                                conversation_context: `${personInfo.workplace || ''} ${personInfo.context || ''} ${personInfo.details || ''}`.trim()
-                            })
-                        });
+                        try {
+                            const response = await fetch(`${config.BACKEND_URL}/api/workflow1/first-meeting`, {
+                                method: "POST",
+                                headers: { "Content-Type": "application/x-www-form-urlencoded" },
+                                body: new URLSearchParams({
+                                    image_data: base64Image,
+                                    name: personInfo.name || '',
+                                    conversation_context: `${personInfo.workplace || ''} ${personInfo.context || ''} ${personInfo.details || ''}`.trim()
+                                })
+                            });
 
-                        if (!response.ok) {
-                            throw new Error(`❌ Backend error: ${await response.text()}`);
+                            if (!response.ok) {
+                                const errorText = await response.text();
+                                console.error(`❌ Backend error: ${response.status} — ${errorText}`);
+                                await session.audio.speak("Visage couldn't save that information");
+                                return;
+                            }
+
+                            const result = await response.json();
+                            console.log('✅ Saved to database:', result);
+                            await session.audio.speak(`Visage will remember ${personInfo.name || 'them'}`);
+                        } catch (fetchError) {
+                            console.error('❌ Failed to connect to backend:', fetchError);
+                            await session.audio.speak("Visage couldn't save that information");
                         }
 
                         this.conversationBuffer = [];
@@ -125,8 +143,9 @@ class MentraOSApp extends AppServer {
                             this.capturedPhoto = photo.buffer
                             await session.audio.speak("Photo Captured")
                         })
-                        .catch(err => {
+                        .catch(async err => {
                             console.error("Photo failed", err);
+                            await session.audio.speak("Camera isn't available right now");
                         });
 
                     // Timeout after 20 seconds
@@ -143,27 +162,39 @@ class MentraOSApp extends AppServer {
 
                             if (!base64Image) {
                                 console.error('❌ No photo was captured');
+                                await session.audio.speak("Visage couldn't capture a photo");
                                 this.conversationBuffer = [];
                                 return;
                             }
 
-                            const response = await fetch(`${config.BACKEND_URL}/api/workflow1/first-meeting`, {
-                                method: "POST",
-                                headers: {
-                                    'Content-Type': 'application/x-www-form-urlencoded',
-                                },
-                                body: new URLSearchParams({
-                                    image_data: base64Image,
-                                    name: personInfo.name || '',
-                                    conversation_context: `${personInfo.workplace || ''} ${personInfo.context || ''} ${personInfo.details || ''}`.trim()
-                                })
-                            });
+                            try {
+                                const response = await fetch(`${config.BACKEND_URL}/api/workflow1/first-meeting`, {
+                                    method: "POST",
+                                    headers: {
+                                        'Content-Type': 'application/x-www-form-urlencoded',
+                                    },
+                                    body: new URLSearchParams({
+                                        image_data: base64Image,
+                                        name: personInfo.name || '',
+                                        conversation_context: `${personInfo.workplace || ''} ${personInfo.context || ''} ${personInfo.details || ''}`.trim()
+                                    })
+                                });
 
-                            if (!response.ok) {
-                                throw new Error(`❌ Backend error: ${response.status} ${response.statusText}`);
+                                if (!response.ok) {
+                                    const errorText = await response.text();
+                                    console.error(`❌ Backend error: ${response.status} - ${response.statusText}`);
+                                    await session.audio.speak("Visage failed to save that information");
+                                    return;
+                                }
+                                
+                                const result = await response.json();
+                                console.log('✅ Saved to database:', result);
+                                await session.audio.speak(`Visage will remember ${personInfo.name || 'them'}`);
+                            } catch (fetchError) {
+                                console.error('❌ Failed to connect to backend:', fetchError);
+                                await session.audio.speak("Visage failed to save that information");
                             }
 
-                            console.log('✅ Saved to database');
                             this.conversationBuffer = [];
                             this.capturedPhoto = null;
                         }
