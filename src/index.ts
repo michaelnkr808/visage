@@ -98,6 +98,7 @@ class MentraOSApp extends AppServer {
     private isCollecting = false;
     private capturedPhoto: Buffer | null = null;
 
+
     constructor() {
         super({
             packageName: config.PACKAGE_NAME,
@@ -107,6 +108,8 @@ class MentraOSApp extends AppServer {
     }
 
     protected override async onSession(session: AppSession, sessionId: string, userId: string): Promise<void> {
+        console.log(`✅ Session started: ${sessionId}`);
+        
         session.layouts.showTextWall("App has started")
         console.log("App has begun running");
 
@@ -192,14 +195,14 @@ class MentraOSApp extends AppServer {
                         size: 'small',
                         compress: 'medium'
                     })
-                        .then(async photo => {
+                        .then(photo => {
                             console.log(`Photo captured: ${photo.filename}`)
                             this.capturedPhoto = photo.buffer
-                            await session.audio.speak("Photo Captured")
+                            session.audio.speak("Photo Captured").catch(console.error);
                         })
-                        .catch(async err => {
+                        .catch(err => {
                             console.error("Photo failed", err);
-                            await session.audio.speak("Camera isn't available right now");
+                            session.audio.speak("Camera isn't available right now").catch(console.error);
                         });
 
                     // Timeout after 20 seconds
@@ -297,9 +300,15 @@ class MentraOSApp extends AppServer {
                     await session.audio.speak("I couldn't recognize this person");
                 }
             }
+
         });
 
-        await session.audio.speak("Visage has started");
+        // Non-blocking audio announcement - don't wait for it to complete
+        session.audio.speak("Visage has started")
+            .then(() => console.log("✅ Audio: 'Visage has started' played successfully"))
+            .catch(err => console.log("⚠️ Audio failed (expected on emulator):", err.message));
+        
+        console.log("✅ onSession setup complete");
     }
 }
 
