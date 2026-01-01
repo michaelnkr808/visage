@@ -55,6 +55,45 @@ async function extractPersonInfo(conversation: string): Promise<{
 }
 
 class MentraOSApp extends AppServer {
+
+
+    private readonly REMEMBER_PHRASES = [
+        "what's your name",
+        "what is your name",
+        "what was your name",
+        "i don't think we've met",
+        "i haven't met you before",
+        "hi i'm",
+        "hey i'm",
+        "hello i'm",
+    ];
+
+    private readonly RECOGNIZE_PHRASES = [
+        "who is this",
+        "who's that",
+        "who is that",
+        "whos that",
+        "do i know them",
+        "have we met",
+    ];
+
+    private readonly FAREWELL_PHRASES = [
+        "nice to meet you",
+        "nice meeting you",
+        "catch you later",
+        "see you later",
+        "goodbye",
+        "bye",
+        "bye, i'll see you later",
+        "later",
+        "nice to meet you i'll see you later",
+        "nice to meet you i'll catch you later",
+        "it was great to meet you",
+        "it was great to meet you i'll see you later",
+        "alright then it was good to meet you",
+    ]
+
+
     private conversationBuffer: string[] = []
     private isCollecting = false;
     private capturedPhoto: Buffer | null = null;
@@ -72,6 +111,10 @@ class MentraOSApp extends AppServer {
         console.log("App has begun running");
 
         session.events.onTranscription(async (data) => {
+            if (!data.isFinal) return;
+
+
+
             console.log('Transcription received:', data.text, 'isFinal:', data.isFinal);
 
             // Handle conversation collection
@@ -83,7 +126,7 @@ class MentraOSApp extends AppServer {
                     const text = data.text.toLowerCase();
 
                     // Check for farewell phrase
-                    if (text.includes("nice to meet you") || text.includes("nice meeting you") || text.includes("catch you later")) {
+                    if (this.FAREWELL_PHRASES.some(phrase => text.includes(phrase))) {
                         this.isCollecting = false;
                         const fullConversation = this.conversationBuffer.join(' ');
                         console.log('📝 Farewell detected! Conversation:', fullConversation);
@@ -132,7 +175,6 @@ class MentraOSApp extends AppServer {
                 return;
             }
 
-            if (!data.isFinal) return;
 
             const command = data.text.toLowerCase();
             console.log('🎯 Processing command:', command);
@@ -140,7 +182,7 @@ class MentraOSApp extends AppServer {
 
 
             // Trigger phrase to start collecting
-            if (command.includes("hey, what's your name") || command.includes("hey, whats your name")) {
+            if (this.REMEMBER_PHRASES.some(phrase => command.includes(phrase))) {
                 try {
                     this.isCollecting = true;
                     this.conversationBuffer = [];
@@ -216,7 +258,7 @@ class MentraOSApp extends AppServer {
                     console.error('Failed to capture photo', err);
                 }
             }
-            if (command.includes("who is this") || command.includes("do i know them") || command.includes("who is this person") || command.includes("who is that") || command.includes("who's that") || command.includes("who's that again") || command.includes("remind me who that is")){
+            if (this.RECOGNIZE_PHRASES.some(phrase => command.includes(phrase))){
                 try{
                     const photo = await session.camera.requestPhoto({
                         size: 'small',
