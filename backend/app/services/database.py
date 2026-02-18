@@ -4,6 +4,7 @@ from sqlalchemy.orm import sessionmaker
 from models.face_scan import Base, Photo, Transcript, DetectedFace, FaceEncoding, PersonInfo
 from config import config
 import numpy as np
+import datetime
 
 load_dotenv()
 
@@ -33,7 +34,7 @@ def save_photo(filename: str, image_data: bytes):
             session.add(photo)
             session.commit()
             return photo.id
-        except:
+        except Exception:
             session.rollback()
             raise
 
@@ -150,7 +151,7 @@ def update_person_last_seen(person_info_id: int):
         try:
             person_info = session.query(PersonInfo).filter(PersonInfo.id == person_info_id).first()
             if person_info:
-                person_info.last_seen_at = func.now()
+                person_info.last_seen_at = datetime.now(timezone.utc)
                 person_info.times_met += 1
                 session.commit()
         except Exception as e:

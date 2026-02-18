@@ -16,7 +16,7 @@ class Photo(Base):
     image_data = Column[bytes](LargeBinary, nullable=False)
     created_at = Column[datetime](DateTime, default=func.now())
     
-    transcript = relationship("Transcript", back_populates="photo", uselist=False, cascade="all, delete-orphan")  # ← ADDED cascade
+    transcript = relationship("Transcript", back_populates="photo", uselist=False, cascade="all, delete-orphan")  
     faces = relationship("DetectedFace", back_populates="photo", cascade="all, delete-orphan")
 
 
