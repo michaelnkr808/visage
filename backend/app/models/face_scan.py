@@ -1,86 +1,86 @@
-from typing import Any
+from typing import Optional
 from datetime import datetime
-from sqlalchemy import Column, Integer, String, LargeBinary, DateTime, ForeignKey, Float, Text
-from sqlalchemy.orm import relationship
+from sqlalchemy import String, LargeBinary, DateTime, ForeignKey, Float, Text
+from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 from sqlalchemy.sql import func
-from sqlalchemy.ext.declarative import declarative_base
 from pgvector.sqlalchemy import Vector
 
-Base = declarative_base()
+class Base(DeclarativeBase):
+    pass
 
 class Photo(Base):
     __tablename__ = "photos"
     
-    id = Column[int](Integer, primary_key=True, autoincrement=True)
-    filename = Column[str](String, nullable=True)
-    image_data = Column[bytes](LargeBinary, nullable=False)
-    created_at = Column[datetime](DateTime, default=func.now())
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    filename: Mapped[Optional[str]] = mapped_column(String)
+    image_data: Mapped[bytes] = mapped_column(LargeBinary)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=func.now)
     
-    transcript = relationship("Transcript", back_populates="photo", uselist=False, cascade="all, delete-orphan")  
-    faces = relationship("DetectedFace", back_populates="photo", cascade="all, delete-orphan")
+    transcript: Mapped[Optional["Transcript"]] = relationship(back_populates="photo", uselist=False, cascade="all, delete-orphan")
+    faces: Mapped[list["DetectedFace"]] = relationship(back_populates="photo", cascade="all, delete-orphan")
 
 
 class Transcript(Base):
     __tablename__ = "transcripts"
     
-    id = Column[int](Integer, primary_key=True, autoincrement=True)
-    photo_id = Column[int](Integer, ForeignKey("photos.id", ondelete="CASCADE"), unique=True, nullable=False)
-    raw_text = Column[str](Text, nullable=True)
-    extracted_name = Column[str](String, nullable=True)
-    context = Column[str](Text, nullable=True)
-    created_at = Column[datetime](DateTime, default=func.now())
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    photo_id: Mapped[int] = mapped_column(ForeignKey("photos.id", ondelete="CASCADE"), unique=True)
+    raw_text: Mapped[Optional[str]] = mapped_column(Text)
+    extracted_name: Mapped[Optional[str]] = mapped_column(String)
+    context: Mapped[Optional[str]] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=func.now)
     
-    photo = relationship("Photo", back_populates="transcript")
+    photo: Mapped["Photo"] = relationship(back_populates="transcript")
 
 
 class DetectedFace(Base):
     __tablename__ = "detected_faces"
     
-    id = Column[int](Integer, primary_key=True, autoincrement=True)
-    photo_id = Column[int](Integer, ForeignKey("photos.id", ondelete="CASCADE"), nullable=False)  # ← ADDED ondelete and nullable
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    photo_id: Mapped[int] = mapped_column(ForeignKey("photos.id", ondelete="CASCADE"))
    
     # Bounding box coordinates
-    x = Column[int](Integer, nullable=False)
-    y = Column[int](Integer, nullable=False)
-    width = Column[int](Integer, nullable=False)
-    height = Column[int](Integer, nullable=False)
+    x: Mapped[int] = mapped_column()
+    y: Mapped[int] = mapped_column()
+    width: Mapped[int] = mapped_column()
+    height: Mapped[int] = mapped_column()
     
     # Cropped face
-    face_image_data = Column[bytes](LargeBinary, nullable=True)
-    confidence = Column[Any](Float, nullable=True)
-    created_at = Column[datetime](DateTime, default=func.now())
+    face_image_data: Mapped[Optional[bytes]] = mapped_column(LargeBinary)
+    confidence: Mapped[Optional[float]] = mapped_column(Float)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=func.now)
     
-    photo = relationship("Photo", back_populates="faces")
-    encoding = relationship("FaceEncoding", back_populates="face", uselist=False, cascade="all, delete-orphan")
-    person_info = relationship("PersonInfo", back_populates="face", uselist=False, cascade="all, delete-orphan")
+    photo: Mapped["Photo"] = relationship(back_populates="faces")
+    encoding: Mapped[Optional["FaceEncoding"]] = relationship(back_populates="face", uselist=False, cascade="all, delete-orphan")
+    person_info: Mapped[Optional["PersonInfo"]] = relationship(back_populates="face", uselist=False, cascade="all, delete-orphan")
 
 
 class FaceEncoding(Base):
     __tablename__ = "face_encodings"
     
-    id = Column[int](Integer, primary_key=True, autoincrement=True)
-    face_id = Column[int](Integer, ForeignKey("detected_faces.id", ondelete="CASCADE"), unique=True, nullable=False)
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    face_id: Mapped[int] = mapped_column(ForeignKey("detected_faces.id", ondelete="CASCADE"), unique=True)
     
     # 128 embedding vector
-    encoding = Column[Any](Vector(128), nullable=False)
+    encoding: Mapped[Vector] = mapped_column(Vector(128))
     
-    model_name = Column[str](String, default="Facenet")
-    created_at = Column[datetime](DateTime, default=func.now())
+    model_name: Mapped[str] = mapped_column(String, default="Facenet")
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=func.now)
     
-    face = relationship("DetectedFace", back_populates="encoding")
+    face: Mapped["DetectedFace"] = relationship(back_populates="encoding")
 
 
 class PersonInfo(Base):
     __tablename__ = "person_info"
     
-    id = Column[int](Integer, primary_key=True, autoincrement=True)
-    face_id = Column[int](Integer, ForeignKey("detected_faces.id", ondelete="CASCADE"), unique=True, nullable=True)
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    face_id: Mapped[Optional[int]] = mapped_column(ForeignKey("detected_faces.id", ondelete="CASCADE"), unique=True)
     
-    name = Column[str](String, nullable=True)
-    conversation_context = Column[str](Text, nullable=True)
+    name: Mapped[Optional[str]] = mapped_column(String)
+    conversation_context: Mapped[Optional[str]] = mapped_column(Text)
     
-    first_met_at = Column[datetime](DateTime, default=func.now())
-    last_seen_at = Column[datetime](DateTime, default=func.now())
-    times_met = Column[int](Integer, default=1)
+    first_met_at: Mapped[datetime] = mapped_column(DateTime, default=func.now)
+    last_seen_at: Mapped[datetime] = mapped_column(DateTime, default=func.now)
+    times_met: Mapped[int] = mapped_column(default=1)
     
-    face = relationship("DetectedFace", back_populates="person_info")
+    face: Mapped[Optional["DetectedFace"]] = relationship(back_populates="person_info")

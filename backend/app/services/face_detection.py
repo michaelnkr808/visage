@@ -63,8 +63,17 @@ def detect_and_encode_face(image_data: bytes) -> Optional[Dict]:
         _, buffer = cv.imencode('.jpg', cropped_face)
         cropped_face_bytes = buffer.tobytes()
         
+        # Normalize the embedding vector
+        embedding = np.array(face_data['embedding'])
+        norm = np.linalg.norm(embedding)
+        if norm == 0:
+            print("⚠️  Warning: Zero norm embedding detected")
+            normalized_embedding = embedding
+        else:
+            normalized_embedding = embedding / norm
+        
         return {
-            'encoding': face_data['embedding'] / np.linalg.norm(face_data['embedding']),  # 128-d vector
+            'encoding': normalized_embedding.tolist(),  # 128-d normalized vector
             'bbox': bbox,                        # {x, y, w, h}
             'confidence': confidence,
             'cropped_face': cropped_face_bytes
@@ -117,8 +126,16 @@ def detect_multiple_faces(image_data: bytes) -> List[Dict]:
             _, buffer = cv.imencode('.jpg', cropped_face)
             cropped_face_bytes = buffer.tobytes()
             
+            # Normalize the embedding
+            embedding = np.array(face_data['embedding'])
+            norm = np.linalg.norm(embedding)
+            if norm == 0:
+                normalized_embedding = embedding
+            else:
+                normalized_embedding = embedding / norm
+            
             faces.append({
-                'encoding': face_data['embedding'],
+                'encoding': normalized_embedding.tolist(),
                 'bbox': bbox,
                 'confidence': face_data.get('face_confidence', 0.99),
                 'cropped_face': cropped_face_bytes

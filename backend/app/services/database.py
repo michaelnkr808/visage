@@ -1,10 +1,9 @@
 from dotenv import load_dotenv
+from datetime import datetime, timezone
 from sqlalchemy import create_engine, func
 from sqlalchemy.orm import sessionmaker
 from models.face_scan import Base, Photo, Transcript, DetectedFace, FaceEncoding, PersonInfo
 from config import config
-import numpy as np
-import datetime
 
 load_dotenv()
 
@@ -27,7 +26,7 @@ def get_db():
 
 # Photo helper functions ----------------------------------------
 
-def save_photo(filename: str, image_data: bytes):
+def save_photo(filename: str, image_data: bytes) -> int:
     with SessionLocal() as session:
         try:
             photo = Photo(filename=filename, image_data=image_data)
@@ -38,18 +37,18 @@ def save_photo(filename: str, image_data: bytes):
             session.rollback()
             raise
 
-def get_photo_by_id(photo_id: int):
+def get_photo_by_id(photo_id: int) -> Photo | None:
     with SessionLocal() as session:
         return session.query(Photo).filter(Photo.id == photo_id).first()
 
-def get_most_recent_photo():
+def get_most_recent_photo() -> Photo | None:
     with SessionLocal() as session:
         return session.query(Photo).order_by(Photo.created_at.desc()).first()
     
 # Face helper functions ------------------------------------------
 
 def save_detected_face(photo_id: int, x: int, y:int, width: int, height: int,
-                       face_image_data: bytes = None, confidence: float = None):
+                       face_image_data: bytes = None, confidence: float = None) -> int:
     """Save a detected face to the database"""
     with SessionLocal() as session:
         try:
@@ -67,18 +66,16 @@ def save_detected_face(photo_id: int, x: int, y:int, width: int, height: int,
             session.rollback()
             raise e
         
-def save_face_encoding(face_id: int, encoding: list, model_name: str = "Facenet"):
-    """Save a face encoding (128-d vector)"""
+def save_face_encoding(face_id: int, encoding: list, model_name: str = "Facenet") -> int:
+    """
+    Save a face encoding (128-d vector)
+    Note: Encoding should already be normalized by detect_and_encode_face()
+    """
     with SessionLocal() as session:
         try:
-            # Normalize encoding before save
-
-            encoding_array = np.array(encoding)
-            normalized_encoding = (encoding_array / np.linalg.norm(encoding_array)).tolist()
-
             face_encoding = FaceEncoding(
                 face_id=face_id,
-                encoding=normalized_encoding,
+                encoding=encoding,
                 model_name=model_name   
             )
             session.add(face_encoding)
@@ -88,15 +85,13 @@ def save_face_encoding(face_id: int, encoding: list, model_name: str = "Facenet"
             session.rollback()
             raise e
 
-def find_matching_face(query_encoding: list, threshold: float = None):
+def find_matching_face(query_encoding: list, threshold: float = None) -> tuple[FaceEncoding | None, float | None]:
     """
     Find a matching face using pgvector similarity search
     Returns the best match if distance < threshold, else None
-    """
-    # Normalize query encoding
-    query_array = np.array(query_encoding)
-    query_normalized = query_array / np.linalg.norm(query_array)
-        
+    
+    Note: query_encoding should already be normalized by detect_and_encode_face()
+    """    
     if threshold is None:
         threshold = config.FACE_MATCH_THRESHOLD
 
@@ -104,7 +99,7 @@ def find_matching_face(query_encoding: list, threshold: float = None):
         # Use pgvector's <-> operator for L2 distance
         result = session.query(
             FaceEncoding,
-            FaceEncoding.encoding.l2_distance(query_normalized).label('distance')
+            FaceEncoding.encoding.l2_distance(query_encoding).label('distance')
         ).order_by('distance').first()
 
         if not result:
@@ -117,7 +112,7 @@ def find_matching_face(query_encoding: list, threshold: float = None):
 
 # Person info helper functions ---------------------------------------
 
-def save_person_info(face_id: int, name: str = None, conversation_context: str = None):
+def save_person_info(face_id: int, name: str = None, conversation_context: str = None) -> int:
     """Save person information"""
     with SessionLocal() as session:
         try:
@@ -133,19 +128,19 @@ def save_person_info(face_id: int, name: str = None, conversation_context: str =
             session.rollback()
             raise e
 
-def get_person_info_by_face_id(face_id:int):
+def get_person_info_by_face_id(face_id:int) -> PersonInfo | None:
     """Get person info for a face"""
     with SessionLocal() as session:
         return session.query(PersonInfo).filter(PersonInfo.face_id == face_id).first()
 
-def get_person_info_by_name(name: str):
+def get_person_info_by_name(name: str) -> PersonInfo | None:
     """Get person info by name (case-insensitive partial match)"""
     with SessionLocal() as session:
         return session.query(PersonInfo).filter(
             PersonInfo.name.ilike(f"%{name}%")
         ).first()
 
-def update_person_last_seen(person_info_id: int):
+def update_person_last_seen(person_info_id: int) -> None:
     """Update last seen timestamp and increment times_met"""        
     with SessionLocal() as session:
         try:
@@ -160,7 +155,7 @@ def update_person_last_seen(person_info_id: int):
 
 # Transcript helper functions ----------------------------------------
 
-def save_transcript(photo_id: int, raw_text: str = None, extracted_name: str = None, context: str = None):
+def save_transcript(photo_id: int, raw_text: str = None, extracted_name: str = None, context: str = None) -> int:
     """Save transcript data"""
     with SessionLocal() as session:
         try:
