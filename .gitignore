@@ -37,11 +37,10 @@ report.[0-9]_.[0-9]_.[0-9]_.[0-9]_.json
 venv/
 
 # tests
-tests/
-test_face_recognition.py
+.tests/
 
 # python
 __pycache__/
 *.py[cod]
-*$spy.class
+*$py.class
 *.so
