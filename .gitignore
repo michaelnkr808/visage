@@ -31,7 +31,17 @@ report.[0-9]_.[0-9]_.[0-9]_.[0-9]_.json
 .idea
 
 # Finder (MacOS) folder config
-.DS_Store
+**/.DS_Store
 
 #Virtual Environment
 venv/
+
+# tests
+tests/
+test_face_recognition.py
+
+# python
+__pycache__/
+*.py[cod]
+*$spy.class
+*.so
