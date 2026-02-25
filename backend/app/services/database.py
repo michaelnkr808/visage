@@ -26,10 +26,10 @@ def get_db():
 
 # Photo helper functions ----------------------------------------
 
-def save_photo(filename: str, image_data: bytes) -> int:
+def save_photo(filename: str, image_data: bytes, user_id: str) -> int:
     with SessionLocal() as session:
         try:
-            photo = Photo(filename=filename, image_data=image_data)
+            photo = Photo(filename=filename, image_data=image_data, user_id=user_id)
             session.add(photo)
             session.commit()
             return photo.id
@@ -85,7 +85,7 @@ def save_face_encoding(face_id: int, encoding: list, model_name: str = "Facenet"
             session.rollback()
             raise e
 
-def find_matching_face(query_encoding: list, threshold: float = None) -> tuple[FaceEncoding | None, float | None]:
+def find_matching_face(query_encoding: list, user_id: str, threshold: float = None) -> tuple[FaceEncoding | None, float | None]:
     """
     Find a matching face using pgvector similarity search
     Returns the best match if distance < threshold, else None
@@ -96,10 +96,12 @@ def find_matching_face(query_encoding: list, threshold: float = None) -> tuple[F
         threshold = config.FACE_MATCH_THRESHOLD
 
     with SessionLocal() as session:
-        # Use pgvector's <-> operator for L2 distance
+        # Use pgvector's <-> operator for L2 distance, filter by user_id
         result = session.query(
             FaceEncoding,
             FaceEncoding.encoding.l2_distance(query_encoding).label('distance')
+        ).join(DetectedFace).join(Photo).filter(
+            Photo.user_id == user_id
         ).order_by('distance').first()
 
         if not result:
@@ -112,12 +114,13 @@ def find_matching_face(query_encoding: list, threshold: float = None) -> tuple[F
 
 # Person info helper functions ---------------------------------------
 
-def save_person_info(face_id: int, name: str = None, conversation_context: str = None) -> int:
+def save_person_info(face_id: int, user_id: str, name: str = None, conversation_context: str = None) -> int:
     """Save person information"""
     with SessionLocal() as session:
         try:
             person_info = PersonInfo(
                 face_id=face_id,
+                user_id=user_id,
                 name=name,
                 conversation_context=conversation_context
             )
@@ -133,11 +136,12 @@ def get_person_info_by_face_id(face_id:int) -> PersonInfo | None:
     with SessionLocal() as session:
         return session.query(PersonInfo).filter(PersonInfo.face_id == face_id).first()
 
-def get_person_info_by_name(name: str) -> PersonInfo | None:
+def get_person_info_by_name(name: str, user_id: str) -> PersonInfo | None:
     """Get person info by name (case-insensitive partial match)"""
     with SessionLocal() as session:
         return session.query(PersonInfo).filter(
-            PersonInfo.name.ilike(f"%{name}%")
+            PersonInfo.name.ilike(f"%{name}%"),
+            PersonInfo.user_id == user_id
         ).first()
 
 def update_person_last_seen(person_info_id: int) -> None:

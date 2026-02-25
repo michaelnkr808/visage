@@ -12,6 +12,7 @@ class Photo(Base):
     __tablename__ = "photos"
     
     id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    user_id: Mapped[str] = mapped_column(String, index=True)
     filename: Mapped[Optional[str]] = mapped_column(String)
     image_data: Mapped[bytes] = mapped_column(LargeBinary)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=func.now)
@@ -74,6 +75,7 @@ class PersonInfo(Base):
     __tablename__ = "person_info"
     
     id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    user_id: Mapped[str] = mapped_column(String, index=True)
     face_id: Mapped[Optional[int]] = mapped_column(ForeignKey("detected_faces.id", ondelete="CASCADE"), unique=True)
     
     name: Mapped[Optional[str]] = mapped_column(String)

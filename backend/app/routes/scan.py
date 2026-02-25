@@ -1,4 +1,4 @@
-from fastapi import APIRouter, HTTPException, Form
+from fastapi import APIRouter, HTTPException, Form, Header
 from pydantic import BaseModel
 from services.database import (
     save_photo, 
@@ -24,6 +24,13 @@ class TranscriptData(BaseModel):
 
 app = APIRouter()
 
+# ==================== AUTH MIDDLEWARE ====================
+
+def verify_auth_token(authorization: str | None = Header(None)):
+    """Verify the authorization token matches the backend secret"""
+    if not authorization or authorization != f"Bearer {config.BACKEND_AUTH_TOKEN}":
+        raise HTTPException(status_code=401, detail="Unauthorized: Invalid or missing auth token")
+
 # ==================== ROUTES ====================
 
 @app.get("/")
@@ -44,8 +51,10 @@ def read_root():
 @app.post("/workflow1/first-meeting")
 async def first_meeting(
     image_data: str = Form(...),  # Base64-encoded image from glasses
+    user_id: str = Form(...),
     name: str = Form(""),
-    conversation_context: str = Form("")
+    conversation_context: str = Form(""),
+    authorization: str | None = Header(None)
 ):
     """
     Workflow 1: First time meeting someone
@@ -53,6 +62,7 @@ async def first_meeting(
     - Optionally provide name from voice transcription
     - Detect face, generate encoding, store in database
     """
+    verify_auth_token(authorization)
     try:
         # Convert base64 to bytes
         image_bytes = base64.b64decode(image_data)
@@ -64,7 +74,8 @@ async def first_meeting(
         # Save photo to database
         photo_id = save_photo(
             filename="glasses_capture.jpg",
-            image_data=image_bytes
+            image_data=image_bytes,
+            user_id=user_id
         )
         print(f"✅ Saved photo #{photo_id}")
         
@@ -97,6 +108,7 @@ async def first_meeting(
         # Save person info
         person_info_id = save_person_info(
             face_id=face_id,
+            user_id=user_id,
             name=name,
             conversation_context=conversation_context
         )
@@ -122,13 +134,18 @@ async def first_meeting(
 # ==================== WORKFLOW 2: RECOGNIZE PERSON ====================
 
 @app.post("/workflow2/recognize")
-async def recognize_person(image_data: str = Form(...)):  # Base64-encoded image
+async def recognize_person(
+    image_data: str = Form(...),  # Base64-encoded image
+    user_id: str = Form(...),
+    authorization: str | None = Header(None)
+):
     """
     Workflow 2: Recognize someone you've met before
     - Receives base64-encoded image from MentraLive glasses
     - Match face against stored encodings
     - Return person's info if match found
     """
+    verify_auth_token(authorization)
     try:
         # Convert base64 to bytes
         image_bytes = base64.b64decode(image_data)
@@ -142,7 +159,7 @@ async def recognize_person(image_data: str = Form(...)):  # Base64-encoded image
         query_encoding = face_result['encoding']
         
         # Find matching face in database
-        matched_encoding, distance = find_matching_face(query_encoding, threshold=config.FACE_MATCH_THRESHOLD)
+        matched_encoding, distance = find_matching_face(query_encoding, user_id=user_id, threshold=config.FACE_MATCH_THRESHOLD)
         
         if not matched_encoding:
             return {
@@ -188,18 +205,23 @@ async def recognize_person(image_data: str = Form(...)):  # Base64-encoded image
 # ==================== WORKFLOW 3: QUERY PERSON BY NAME ====================
 
 @app.get("/people/search")
-async def search_person_by_name(name: str):
+async def search_person_by_name(
+    name: str,
+    user_id: str,
+    authorization: str | None = Header(None)
+):
     """
     Workflow 3: Query person information by name
     - Search for person by name (case-insensitive, partial match)
     - Return person's info if found
     """
+    verify_auth_token(authorization)
     try:
         if not name or name.strip() == "":
             raise HTTPException(status_code=400, detail="Name parameter is required")
         
         # Search for person by name
-        person_info = get_person_info_by_name(name.strip())
+        person_info = get_person_info_by_name(name.strip(), user_id=user_id)
         
         if not person_info:
             raise HTTPException(status_code=404, detail=f"No person found with name: {name}")

@@ -89,6 +89,7 @@ async function extractNameFromQuery(query: string): Promise<string | null> {
 
 class MentraOSApp extends AppServer {
 
+    private currentUserId: string | null = null;
 
     private readonly REMEMBER_PHRASES = [
         "what's your name",
@@ -150,6 +151,7 @@ class MentraOSApp extends AppServer {
 
     protected override async onSession(session: AppSession, sessionId: string, userId: string): Promise<void> {
         console.log(`✅ Session started: ${sessionId}`);
+        this.currentUserId = userId;
         
         session.layouts.showTextWall("App has started")
         console.log("App has begun running");
@@ -187,9 +189,13 @@ class MentraOSApp extends AppServer {
                         try {
                             const response = await fetch(`${config.BACKEND_URL}/api/workflow1/first-meeting`, {
                                 method: "POST",
-                                headers: { "Content-Type": "application/x-www-form-urlencoded" },
+                                headers: { 
+                                    "Content-Type": "application/x-www-form-urlencoded",
+                                    "Authorization": `Bearer ${config.BACKEND_AUTH_TOKEN}`
+                                },
                                 body: new URLSearchParams({
                                     image_data: base64Image,
+                                    user_id: this.currentUserId || '',
                                     name: personInfo.name || '',
                                     conversation_context: `${personInfo.workplace || ''} ${personInfo.context || ''} ${personInfo.details || ''}`.trim()
                                 })
@@ -232,7 +238,11 @@ class MentraOSApp extends AppServer {
                     }
 
                     // Query backend for person info
-                    const response = await fetch(`${config.BACKEND_URL}/api/people/search?name=${encodeURIComponent(name)}`);
+                    const response = await fetch(`${config.BACKEND_URL}/api/people/search?name=${encodeURIComponent(name)}&user_id=${encodeURIComponent(this.currentUserId || '')}`, {
+                        headers: {
+                            "Authorization": `Bearer ${config.BACKEND_AUTH_TOKEN}`
+                        }
+                    });
 
                     if (!response.ok) {
                         session.audio.speak("I couldn't find that person").catch(console.error);
@@ -302,9 +312,11 @@ class MentraOSApp extends AppServer {
                                     method: "POST",
                                     headers: {
                                         'Content-Type': 'application/x-www-form-urlencoded',
+                                        "Authorization": `Bearer ${config.BACKEND_AUTH_TOKEN}`
                                     },
                                     body: new URLSearchParams({
                                         image_data: base64Image,
+                                        user_id: this.currentUserId || '',
                                         name: personInfo.name || '',
                                         conversation_context: `${personInfo.workplace || ''} ${personInfo.context || ''} ${personInfo.details || ''}`.trim()
                                     })
@@ -347,8 +359,14 @@ class MentraOSApp extends AppServer {
 
                     const response = await fetch(`${config.BACKEND_URL}/api/workflow2/recognize`, {
                         method: "POST",
-                        headers: { "Content-Type": "application/x-www-form-urlencoded" },
-                        body: new URLSearchParams({ image_data: base64Image })
+                        headers: { 
+                            "Content-Type": "application/x-www-form-urlencoded",
+                            "Authorization": `Bearer ${config.BACKEND_AUTH_TOKEN}`
+                        },
+                        body: new URLSearchParams({ 
+                            image_data: base64Image,
+                            user_id: this.currentUserId || ''
+                        })
                     });
 
                     if (!response.ok){

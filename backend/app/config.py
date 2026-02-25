@@ -35,6 +35,10 @@ class Config:
     # API Settings
     MENTRAOS_API_KEY = os.getenv("MENTRAOS_API_KEY")
     BACKEND_PORT = int(os.getenv("BACKEND_PORT", "8000"))
+    BACKEND_AUTH_TOKEN = os.getenv("BACKEND_AUTH_TOKEN")
+    
+    if not BACKEND_AUTH_TOKEN:
+        raise ValueError("BACKEND_AUTH_TOKEN must be set in environment variables")
     
     # Image Processing
     MAX_IMAGE_SIZE_MB = int(os.getenv("MAX_IMAGE_SIZE_MB", "10"))
