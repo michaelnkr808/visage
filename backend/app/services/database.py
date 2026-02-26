@@ -66,7 +66,7 @@ def save_detected_face(photo_id: int, x: int, y:int, width: int, height: int,
             session.rollback()
             raise e
         
-def save_face_encoding(face_id: int, encoding: list, model_name: str = "Facenet") -> int:
+def save_face_encoding(face_id: int, encoding: list, model_name: str = "InsightFace") -> int:
     """
     Save a face encoding (128-d vector)
     Note: Encoding should already be normalized by detect_and_encode_face()
@@ -105,12 +105,18 @@ def find_matching_face(query_encoding: list, user_id: str, threshold: float = No
         ).order_by('distance').first()
 
         if not result:
+            print(f"ℹ️  No faces found in database for user {user_id}")
             return None, None
         
-        if result.distance < threshold:
-            return result[0], result.distance
+        distance = result.distance
+        print(f"🔍 Closest match distance: {distance:.4f} (threshold: {threshold})")
+        
+        if distance < threshold:
+            print(f"✅ Match found (distance {distance:.4f} < {threshold})")
+            return result[0], distance
         else:
-            return None, result.distance
+            print(f"❌ No match (distance {distance:.4f} >= {threshold})")
+            return None, distance
 
 # Person info helper functions ---------------------------------------
 

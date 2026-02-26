@@ -9,13 +9,13 @@ class Config:
     # Database
     DATABASE_URL = os.getenv("DATABASE_URL")
     
-    # Face Recognition Settings
-    FACE_MATCH_THRESHOLD = float(os.getenv("FACE_MATCH_THRESHOLD", "0.85"))
+    # InsightFace Settings
+    FACE_MATCH_THRESHOLD = float(os.getenv("FACE_MATCH_THRESHOLD", "0.6"))
     """
     Distance threshold for face matching (Euclidean distance)
     - Lower values = stricter matching (fewer false positives)
     - Higher values = looser matching (more false positives)
-    - Default: 0.85
+    - Default: 0.35 (good balance for normalized embeddings)
     """
     
     FACE_CONFIDENCE_MIN = float(os.getenv("FACE_CONFIDENCE_MIN", "0.9"))
@@ -24,13 +24,6 @@ class Config:
     - Range: 0.0 - 1.0
     - Default: 0.9 (90% confidence)
     """
-    
-    # DeepFace Model Settings
-    FACE_MODEL = os.getenv("FACE_MODEL", "Facenet")
-    """Face recognition model: Facenet, VGG-Face, OpenFace, DeepFace, etc."""
-    
-    DETECTOR_BACKEND = os.getenv("DETECTOR_BACKEND", "retinaface")
-    """Face detector: retinaface, mtcnn, opencv, ssd, dlib"""
     
     # API Settings
     MENTRAOS_API_KEY = os.getenv("MENTRAOS_API_KEY")

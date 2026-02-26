@@ -34,7 +34,11 @@ async function extractPersonInfo(conversation: string): Promise<{
     I just met someone and had the following conversation after asking, "What's your name?":
 
     "${conversation}"
-    Extract any information about this person. Return ONLY valid JSON (no markdown, no backticks):
+    
+    Extract any information about this person from what THEY said about THEMSELVES. 
+    Handle both first-person ("I'm Mark, I work at Google") and third-person ("His name is Mark, he works at Google") phrasing.
+    
+    Return ONLY valid JSON (no markdown, no backticks):
     {
         "name": "their name or null if not mentioned",
         "workplace": "where they work/study/major or null",
@@ -108,6 +112,9 @@ class MentraOSApp extends AppServer {
         "who is that",
         "whos that",
         "do i know them",
+        "do i know that person",
+        "do i know this person",
+        "do you know this person",
         "have we met",
     ];
 
@@ -227,6 +234,59 @@ class MentraOSApp extends AppServer {
             const command = data.text.toLowerCase();
             console.log('🎯 Processing command:', command);
 
+            // Workflow 2: Recognize person (MUST come before Query to handle "who is this")
+            if (this.RECOGNIZE_PHRASES.some(phrase => command.includes(phrase))){
+                try{
+                    // Turn off LED before capturing
+                    if (session.capabilities?.hasLight) {
+                        await session.led.turnOff();
+                    }
+                    
+                    const photo = await session.camera.requestPhoto({
+                        size: 'small',
+                        compress: 'medium'
+                    });
+
+                    console.log(`📸 Photo captured for recognition: ${photo.filename}`);
+                    
+                    const base64Image = photo.buffer.toString('base64');
+
+                    const response = await fetch(`${config.BACKEND_URL}/api/workflow2/recognize`, {
+                        method: "POST",
+                        headers: { 
+                            "Content-Type": "application/x-www-form-urlencoded",
+                            "Authorization": `Bearer ${config.BACKEND_AUTH_TOKEN}`
+                        },
+                        body: new URLSearchParams({ 
+                            image_data: base64Image,
+                            user_id: this.currentUserId || ''
+                        })
+                    });
+
+                    if (!response.ok){
+                        const errorText = await response.text();
+                        console.error(`❌ Recognition failed: ${response.status} — ${errorText}`);
+                        await session.audio.speak("Visage couldn't recognize this person");
+                        return;
+                    }
+
+                    const result = await response.json() as RecognitionResult;
+
+                    if (result.recognized && result.person){
+                        await session.audio.speak(
+                            `That's ${result.person.name}. ${result.person.conversation_context}`
+                        );
+                    }else {
+                        await session.audio.speak("I don't think we've met them before");
+                    }
+
+                }catch (err){
+                    console.error('❌ Recognition failed:', err);
+                    await session.audio.speak("I couldn't recognize this person");
+                }
+                return; // Don't continue to other workflows
+            }
+
             // Workflow 3: Query person by name
             if (this.QUERY_PHRASES.some(phrase => command.includes(phrase))) {
                 try {
@@ -274,6 +334,12 @@ class MentraOSApp extends AppServer {
                     this.conversationBuffer = [];
 
                     console.log('Starting photo request...');
+                    
+                    
+                    if (session.capabilities?.hasLight) {
+                        await session.led.turnOff();
+                    }
+                    
                     session.camera.requestPhoto({
                         size: 'small',
                         compress: 'medium'
@@ -344,51 +410,6 @@ class MentraOSApp extends AppServer {
 
                 } catch (err) {
                     console.error('Failed to capture photo', err);
-                }
-            }
-            if (this.RECOGNIZE_PHRASES.some(phrase => command.includes(phrase))){
-                try{
-                    const photo = await session.camera.requestPhoto({
-                        size: 'small',
-                        compress: 'medium'
-                    });
-
-                    console.log(`📸 Photo captured for recognition: ${photo.filename}`);
-                    
-                    const base64Image = photo.buffer.toString('base64');
-
-                    const response = await fetch(`${config.BACKEND_URL}/api/workflow2/recognize`, {
-                        method: "POST",
-                        headers: { 
-                            "Content-Type": "application/x-www-form-urlencoded",
-                            "Authorization": `Bearer ${config.BACKEND_AUTH_TOKEN}`
-                        },
-                        body: new URLSearchParams({ 
-                            image_data: base64Image,
-                            user_id: this.currentUserId || ''
-                        })
-                    });
-
-                    if (!response.ok){
-                        const errorText = await response.text();
-                        console.error(`❌ Recognition failed: ${response.status} — ${errorText}`);
-                        await session.audio.speak("Visage couldn't recognize this person");
-                        return;
-                    }
-
-                    const result = await response.json() as RecognitionResult;
-
-                    if (result.recognized && result.person){
-                        await session.audio.speak(
-                            `That's ${result.person.name}. ${result.person.conversation_context}`
-                        );
-                    }else {
-                        await session.audio.speak("I don't think we've met them before");
-                    }
-
-                }catch (err){
-                    console.error('❌ Recognition failed:', err);
-                    await session.audio.speak("I couldn't recognize this person");
                 }
             }
 

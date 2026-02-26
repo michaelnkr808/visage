@@ -1,8 +1,7 @@
 from typing import Optional
-from datetime import datetime
+from datetime import datetime, timezone
 from sqlalchemy import String, LargeBinary, DateTime, ForeignKey, Float, Text
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
-from sqlalchemy.sql import func
 from pgvector.sqlalchemy import Vector
 
 class Base(DeclarativeBase):
@@ -15,7 +14,7 @@ class Photo(Base):
     user_id: Mapped[str] = mapped_column(String, index=True)
     filename: Mapped[Optional[str]] = mapped_column(String)
     image_data: Mapped[bytes] = mapped_column(LargeBinary)
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=func.now)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(timezone.utc))
     
     transcript: Mapped[Optional["Transcript"]] = relationship(back_populates="photo", uselist=False, cascade="all, delete-orphan")
     faces: Mapped[list["DetectedFace"]] = relationship(back_populates="photo", cascade="all, delete-orphan")
@@ -29,7 +28,7 @@ class Transcript(Base):
     raw_text: Mapped[Optional[str]] = mapped_column(Text)
     extracted_name: Mapped[Optional[str]] = mapped_column(String)
     context: Mapped[Optional[str]] = mapped_column(Text)
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=func.now)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(timezone.utc))
     
     photo: Mapped["Photo"] = relationship(back_populates="transcript")
 
@@ -49,7 +48,7 @@ class DetectedFace(Base):
     # Cropped face
     face_image_data: Mapped[Optional[bytes]] = mapped_column(LargeBinary)
     confidence: Mapped[Optional[float]] = mapped_column(Float)
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=func.now)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(timezone.utc))
     
     photo: Mapped["Photo"] = relationship(back_populates="faces")
     encoding: Mapped[Optional["FaceEncoding"]] = relationship(back_populates="face", uselist=False, cascade="all, delete-orphan")
@@ -62,11 +61,11 @@ class FaceEncoding(Base):
     id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
     face_id: Mapped[int] = mapped_column(ForeignKey("detected_faces.id", ondelete="CASCADE"), unique=True)
     
-    # 128 embedding vector
-    encoding: Mapped[Vector] = mapped_column(Vector(128))
+    # 512-d embedding vector (InsightFace)
+    encoding: Mapped[Vector] = mapped_column(Vector(512))
     
-    model_name: Mapped[str] = mapped_column(String, default="Facenet")
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=func.now)
+    model_name: Mapped[str] = mapped_column(String, default="InsightFace")
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(timezone.utc))
     
     face: Mapped["DetectedFace"] = relationship(back_populates="encoding")
 
@@ -81,8 +80,8 @@ class PersonInfo(Base):
     name: Mapped[Optional[str]] = mapped_column(String)
     conversation_context: Mapped[Optional[str]] = mapped_column(Text)
     
-    first_met_at: Mapped[datetime] = mapped_column(DateTime, default=func.now)
-    last_seen_at: Mapped[datetime] = mapped_column(DateTime, default=func.now)
+    first_met_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(timezone.utc))
+    last_seen_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(timezone.utc))
     times_met: Mapped[int] = mapped_column(default=1)
     
     face: Mapped[Optional["DetectedFace"]] = relationship(back_populates="person_info")

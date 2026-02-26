@@ -79,7 +79,7 @@ async def first_meeting(
         )
         print(f"✅ Saved photo #{photo_id}")
         
-        # Detect face and generate encoding using DeepFace
+        # Detect face and generate encoding using InsightFace
         face_result = detect_and_encode_face(image_bytes)
         
         if not face_result:
@@ -97,11 +97,11 @@ async def first_meeting(
         )
         print(f"✅ Saved detected face #{face_id}")
         
-        # Save face encoding (128-d vector)
+        # Save face encoding (512-d vector)
         encoding_id = save_face_encoding(
             face_id=face_id,
             encoding=face_result['encoding'],
-            model_name="Facenet"
+            model_name="InsightFace"
         )
         print(f"✅ Saved face encoding #{encoding_id}")
         

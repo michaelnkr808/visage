@@ -1,14 +1,15 @@
 import numpy as np
-import io
-from deepface import DeepFace
-from PIL import Image
 import cv2 as cv
+from insightface.app import FaceAnalysis
 from typing import Dict, Optional, List
-from config import config
+
+# Initialize InsightFace model (singleton)
+app = FaceAnalysis(providers=['CPUExecutionProvider'])
+app.prepare(ctx_id=0, det_size=(640, 640))
 
 def detect_and_encode_face(image_data: bytes) -> Optional[Dict]:
     """
-    Detect face and generate 128-d encoding using DeepFace + RetinaFace
+    Detect face and generate 512-d encoding using InsightFace
     
     Args:
         image_data: Raw image bytes from MentraLive glasses or database
@@ -16,10 +17,10 @@ def detect_and_encode_face(image_data: bytes) -> Optional[Dict]:
     Returns:
         Dictionary with face data:
         {
-            'encoding': list,  # 128-d face embedding
+            'encoding': list,  # 512-d face embedding
             'bbox': dict,      # {x, y, w, h} bounding box
             'confidence': float,
-            'cropped_face': bytes  # Optional cropped face image
+            'cropped_face': bytes  # Cropped face image
         }
         Returns None if no face detected
     """
@@ -32,57 +33,64 @@ def detect_and_encode_face(image_data: bytes) -> Optional[Dict]:
             print("❌ Failed to decode image")
             return None
         
-        results = DeepFace.represent(
-            img_path=img,
-            model_name="Facenet",         
-            detector_backend="retinaface", 
-            enforce_detection=True,
-            align=True                     
-        )
+        # Detect faces
+        faces = app.get(img)
         
-        # If multiple faces detected, pick the largest one (closest person)
-        if len(results) > 1:
-            print(f"⚠️  Detected {len(results)} faces, using largest one")
-            results = [max(results, key=lambda x: x['facial_area']['w'] * x['facial_area']['h'])]
-        
-        face_data = results[0]
-        
-        # Extract bounding box
-        bbox = face_data['facial_area']
-
-        confidence = face_data.get('face_confidence', 0.99)
-        if confidence < config.FACE_CONFIDENCE_MIN:
-            print(f"⚠️  Face confidence too low: {confidence}")
+        if not faces or len(faces) == 0:
+            print("❌ No faces detected")
             return None
         
-        # Crop the face from the image (optional, for storage)
-        x, y, w, h = bbox['x'], bbox['y'], bbox['w'], bbox['h']
+        # If multiple faces, pick the largest one (closest person)
+        if len(faces) > 1:
+            print(f"⚠️  Detected {len(faces)} faces, using largest one")
+            face = max(faces, key=lambda f: (f.bbox[2] - f.bbox[0]) * (f.bbox[3] - f.bbox[1]))
+        else:
+            face = faces[0]
+        
+        # Extract bbox [x1, y1, x2, y2] -> convert to [x, y, w, h]
+        x1, y1, x2, y2 = face.bbox.astype(int)
+        x, y, w, h = int(x1), int(y1), int(x2 - x1), int(y2 - y1)
+        
+        # Validate bbox
+        img_height, img_width = img.shape[:2]
+        face_area = w * h
+        img_area = img_width * img_height
+        coverage = face_area / img_area
+        
+        print(f"📏 Detected face bbox: {w}x{h} at ({x}, {y}) | Image: {img_width}x{img_height} | Coverage: {coverage*100:.1f}%")
+        
+        # Reject if bbox at origin (0,0) AND covers >98% - detector failed
+        if x <= 5 and y <= 5 and coverage > 0.98:
+            print(f"⚠️  Full-image detection at origin - likely false positive, rejecting")
+            return None
+        
+        if w < 30 or h < 30:
+            print(f"⚠️  Detected face too small ({w}x{h}) - likely false positive")
+            return None
+        
+        # Get detection confidence
+        confidence = float(face.det_score)
+        print(f"ℹ️  Face detected with confidence: {confidence:.4f}")
+        
+        # Crop the face from the image
         cropped_face = img[y:y+h, x:x+w]
         
         # Convert cropped face to bytes
         _, buffer = cv.imencode('.jpg', cropped_face)
         cropped_face_bytes = buffer.tobytes()
         
-        # Normalize the embedding vector
-        embedding = np.array(face_data['embedding'])
-        norm = np.linalg.norm(embedding)
-        if norm == 0:
-            print("⚠️  Warning: Zero norm embedding detected")
-            normalized_embedding = embedding
-        else:
-            normalized_embedding = embedding / norm
+        # Get the 512-d embedding (already normalized by InsightFace)
+        embedding = face.normed_embedding
+        
+        bbox_dict = {'x': x, 'y': y, 'w': w, 'h': h}
         
         return {
-            'encoding': normalized_embedding.tolist(),  # 128-d normalized vector
-            'bbox': bbox,                        # {x, y, w, h}
+            'encoding': embedding.tolist(),  # 512-d normalized vector
+            'bbox': bbox_dict,
             'confidence': confidence,
             'cropped_face': cropped_face_bytes
         }
         
-    except ValueError as e:
-        # No face detected
-        print(f"❌ No face detected: {e}")
-        return None
     except Exception as e:
         print(f"❌ Error in face detection: {e}")
         return None
@@ -108,141 +116,38 @@ def detect_multiple_faces(image_data: bytes) -> List[Dict]:
             return []
         
         # Detect all faces
-        results = DeepFace.represent(
-            img_path=img,
-            model_name="Facenet",
-            detector_backend="retinaface",
-            enforce_detection=False,  # Don't throw error if no faces
-            align=True
-        )
+        faces = app.get(img)
         
-        faces = []
-        for face_data in results:
-            bbox = face_data['facial_area']
-            x, y, w, h = bbox['x'], bbox['y'], bbox['w'], bbox['h']
+        if not faces:
+            print("❌ No faces detected")
+            return []
+        
+        result_faces = []
+        for face in faces:
+            # Extract bbox
+            x1, y1, x2, y2 = face.bbox.astype(int)
+            x, y, w, h = x1, y1, x2 - x1, y2 - y1
             
             # Crop face
             cropped_face = img[y:y+h, x:x+w]
             _, buffer = cv.imencode('.jpg', cropped_face)
             cropped_face_bytes = buffer.tobytes()
             
-            # Normalize the embedding
-            embedding = np.array(face_data['embedding'])
-            norm = np.linalg.norm(embedding)
-            if norm == 0:
-                normalized_embedding = embedding
-            else:
-                normalized_embedding = embedding / norm
+            # Get embedding
+            embedding = face.normed_embedding
             
-            faces.append({
-                'encoding': normalized_embedding.tolist(),
-                'bbox': bbox,
-                'confidence': face_data.get('face_confidence', 0.99),
+            bbox_dict = {'x': x, 'y': y, 'w': w, 'h': h}
+            
+            result_faces.append({
+                'encoding': embedding.tolist(),
+                'bbox': bbox_dict,
+                'confidence': float(face.det_score),
                 'cropped_face': cropped_face_bytes
             })
         
-        print(f"✅ Detected {len(faces)} face(s)")
-        return faces
+        print(f"✅ Detected {len(result_faces)} face(s)")
+        return result_faces
         
     except Exception as e:
         print(f"❌ Error detecting multiple faces: {e}")
         return []
-
-
-def get_face_from_center(faces: List[Dict]) -> Optional[Dict]:
-    """
-    From multiple detected faces, return the one closest to image center
-    Useful when you want the person directly in front of the glasses
-    
-    Args:
-        faces: List of face dictionaries from detect_multiple_faces()
-        
-    Returns:
-        Face dictionary closest to center, or None if no faces
-    """
-    if not faces:
-        return None
-    
-    if len(faces) == 1:
-        return faces[0]
-    
-    # Assume image dimensions based on first face's bbox
-    # (This is approximate - in production you'd want actual image dimensions)
-    image_center_x = 640  # Typical image width / 2
-    image_center_y = 480  # Typical image height / 2
-    
-    def distance_from_center(face):
-        bbox = face['bbox']
-        face_center_x = bbox['x'] + bbox['w'] / 2
-        face_center_y = bbox['y'] + bbox['h'] / 2
-        
-        return np.sqrt(
-            (face_center_x - image_center_x) ** 2 + 
-            (face_center_y - image_center_y) ** 2
-        )
-    
-    # Return face closest to center
-    return min(faces, key=distance_from_center)
-
-
-# ==================== TESTING FUNCTIONS ====================
-
-def test_detection_on_photo_id(photo_id: int):
-    """
-    Test face detection on a photo from the database
-    For debugging purposes
-    """
-    from services.database import get_photo_by_id
-    
-    photo = get_photo_by_id(photo_id)
-    if not photo:
-        print(f"❌ Photo #{photo_id} not found")
-        return
-    
-    print(f"🔍 Testing face detection on photo #{photo_id}")
-    result = detect_and_encode_face(photo.image_data)
-    
-    if result:
-        print(f"✅ Face detected!")
-        print(f"   Bounding box: {result['bbox']}")
-        print(f"   Confidence: {result['confidence']:.2f}")
-        print(f"   Encoding length: {len(result['encoding'])}")
-    else:
-        print(f"❌ No face detected")
-
-
-def test_detection_on_latest_photo():
-    """
-    Test face detection on the most recent photo in database
-    """
-    from services.database import get_most_recent_photo
-    
-    photo = get_most_recent_photo()
-    if not photo:
-        print("❌ No photos in database")
-        return
-    
-    print(f"🔍 Testing face detection on most recent photo (#{photo.id})")
-    result = detect_and_encode_face(photo.image_data)
-    
-    if result:
-        print(f"✅ Face detected!")
-        print(f"   Bounding box: {result['bbox']}")
-        print(f"   Confidence: {result['confidence']:.2f}")
-        print(f"   Encoding length: {len(result['encoding'])}")
-    else:
-        print(f"❌ No face detected")
-
-
-# For command-line testing
-if __name__ == "__main__":
-    import argparse
-    
-    parser = argparse.ArgumentParser(description='Test face detection')
-    parser.add_argument('--photo_id', type=int, help='ID of photo to test')
-    args = parser.parse_args()
-    
-    if args.photo_id:
-        test_detection_on_photo_id(args.photo_id)
-    else:
-        test_detection_on_latest_photo()

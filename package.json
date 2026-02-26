@@ -16,6 +16,6 @@
   "dependencies": {
     "@google/genai": "^1.33.0",
     "@google/generative-ai": "^0.24.1",
-    "@mentra/sdk": "^2.1.28"
+    "@mentra/sdk": "^2.1.29"
   }
 }
