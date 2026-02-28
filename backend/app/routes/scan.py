@@ -1,15 +1,16 @@
 from fastapi import APIRouter, HTTPException, Form, Header
 from pydantic import BaseModel
 from services.database import (
-    save_photo, 
-    save_detected_face, 
-    save_face_encoding, 
+    save_photo,
+    save_detected_face,
+    save_face_encoding,
+    link_encoding_to_person,
     save_person_info,
     save_transcript,
     find_matching_face,
-    get_person_info_by_face_id,
     get_person_info_by_name,
-    update_person_last_seen
+    update_person_last_seen,
+    delete_person_by_name
 )
 from services.face_detection import detect_and_encode_face
 import base64
@@ -113,7 +114,11 @@ async def first_meeting(
             conversation_context=conversation_context
         )
         print(f"✅ Saved person info #{person_info_id}: {name}")
-        
+
+        # Link encoding to person so find_matching_face can group by person
+        link_encoding_to_person(encoding_id, person_info_id)
+        print(f"✅ Linked encoding #{encoding_id} to person #{person_info_id}")
+
         return {
             "success": True,
             "message": f"Successfully registered {name or 'unknown person'}",
@@ -157,29 +162,18 @@ async def recognize_person(
             raise HTTPException(status_code=400, detail="No face detected in image")
         
         query_encoding = face_result['encoding']
-        
-        # Find matching face in database
-        matched_encoding, distance = find_matching_face(query_encoding, user_id=user_id, threshold=config.FACE_MATCH_THRESHOLD)
-        
-        if not matched_encoding:
+
+        # Find matching person — groups by person_info_id across all their stored encodings
+        person_info, distance = find_matching_face(query_encoding, user_id=user_id, threshold=config.FACE_MATCH_THRESHOLD)
+
+        if not person_info:
             return {
                 "success": True,
                 "recognized": False,
                 "message": "Haven't met this person before",
                 "distance": float(distance) if distance else None
             }
-        
-        # Get person info
-        person_info = get_person_info_by_face_id(matched_encoding.face_id)
-        
-        if not person_info:
-            return {
-                "success": True,
-                "recognized": True,
-                "message": "Face matched but no person info found",
-                "distance": distance
-            }
-        
+
         # Update last seen
         update_person_last_seen(person_info.id)
         
@@ -238,6 +232,40 @@ async def search_person_by_name(
         raise
     except Exception as e:
         print(f"❌ Error in search_person_by_name: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+# ==================== WORKFLOW 4: DELETE PERSON BY NAME ====================
+
+@app.delete("/people/delete")
+async def delete_person(
+    name: str,
+    user_id: str,
+    authorization: str | None = Header(None)
+):
+    """
+    Workflow 4: Delete person by name
+    - Remove person from database by name
+    - Cascades to delete associated face encodings, detected faces, and photos
+    """
+    verify_auth_token(authorization)
+    try:
+        if not name or name.strip() == "":
+            raise HTTPException(status_code=400, detail="Name parameter is required")
+        
+        success = delete_person_by_name(name.strip(), user_id=user_id)
+        
+        if not success:
+            raise HTTPException(status_code=404, detail=f"No person found with name: {name}")
+        
+        return {
+            "success": True,
+            "message": f"Successfully deleted {name}"
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"❌ Error in delete_person: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 # ==================== TRANSCRIPT ENDPOINT ====================

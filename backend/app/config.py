@@ -10,19 +10,19 @@ class Config:
     DATABASE_URL = os.getenv("DATABASE_URL")
     
     # InsightFace Settings
-    FACE_MATCH_THRESHOLD = float(os.getenv("FACE_MATCH_THRESHOLD", "0.6"))
+    FACE_MATCH_THRESHOLD = float(os.getenv("FACE_MATCH_THRESHOLD", "0.4"))
     """
-    Distance threshold for face matching (Euclidean distance)
+    Distance threshold for face matching (L2 distance on normalized embeddings)
+    - buffalo_l normalized embeddings: typical range 0.35-0.45
     - Lower values = stricter matching (fewer false positives)
     - Higher values = looser matching (more false positives)
-    - Default: 0.35 (good balance for normalized embeddings)
     """
     
-    FACE_CONFIDENCE_MIN = float(os.getenv("FACE_CONFIDENCE_MIN", "0.9"))
+    FACE_CONFIDENCE_MIN = float(os.getenv("FACE_CONFIDENCE_MIN", "0.75"))
     """
     Minimum confidence score for face detection
     - Range: 0.0 - 1.0
-    - Default: 0.9 (90% confidence)
+    - Mentra Live at size='small' typically produces 0.74-0.84
     """
     
     # API Settings

@@ -57,16 +57,20 @@ class DetectedFace(Base):
 
 class FaceEncoding(Base):
     __tablename__ = "face_encodings"
-    
+
     id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
     face_id: Mapped[int] = mapped_column(ForeignKey("detected_faces.id", ondelete="CASCADE"), unique=True)
-    
+
+    # Links this encoding to a person — allows multiple encodings per person
+    # SET NULL on delete so encodings aren't lost if PersonInfo is removed independently
+    person_info_id: Mapped[Optional[int]] = mapped_column(ForeignKey("person_info.id", ondelete="SET NULL"), nullable=True)
+
     # 512-d embedding vector (InsightFace)
     encoding: Mapped[Vector] = mapped_column(Vector(512))
-    
+
     model_name: Mapped[str] = mapped_column(String, default="InsightFace")
     created_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(timezone.utc))
-    
+
     face: Mapped["DetectedFace"] = relationship(back_populates="encoding")
 
 

@@ -66,29 +66,31 @@ async function extractPersonInfo(conversation: string): Promise<{
     }
 }
 
-async function extractNameFromQuery(query: string): Promise<string | null> {
-    const prompt = `
-    Extract the person's name from this question: "${query}"
+function extractNameFromQuery(query: string): string | null {
+    // Remove punctuation and convert to lowercase
+    const clean = query.toLowerCase().trim().replace(/[?.!,]$/g, '');
     
-    Examples:
-    "tell me about Sarah" → Sarah
-    "remind me about John Smith" → John Smith
-    "what do I know about Mike" → Mike
+    // Match patterns: "tell me about [name]", "who is [name]", etc.
+    const patterns = [
+        /tell me about (.+)/,
+        /remind me about (.+)/,
+        /what do i know about (.+)/,
+        /who (?:is|was) (.+)/,
+    ];
     
-    Return ONLY the name, nothing else. If no name is found, return null.`;
-
-    try {
-        const response = await ai.models.generateContent({
-            model: 'gemini-2.5-flash',
-            contents: prompt,
-        });
-
-        const name = (response.text ?? '').trim();
-        return name && name !== 'null' ? name : null;
-    } catch (error) {
-        console.error('Failed to extract name:', error);
-        return null;
+    for (const pattern of patterns) {
+        const match = clean.match(pattern);
+        if (match && match[1]) {
+            // Capitalize first letter of each word
+            return match[1]
+                .split(' ')
+                .map(word => word.charAt(0).toUpperCase() + word.slice(1))
+                .join(' ')
+                .trim();
+        }
     }
+    
+    return null;
 }
 
 class MentraOSApp extends AppServer {
@@ -107,6 +109,7 @@ class MentraOSApp extends AppServer {
     ];
 
     private readonly RECOGNIZE_PHRASES = [
+        "test recognition",
         "who is this",
         "who's that",
         "who is that",
@@ -140,6 +143,13 @@ class MentraOSApp extends AppServer {
         "remind me about",
         "what do i know about",
         "who is",
+    ];
+
+    private readonly DELETE_PHRASES = [
+        "forget about",
+        "forget",
+        "delete",
+        "remove",
     ];
 
 
@@ -189,7 +199,16 @@ class MentraOSApp extends AppServer {
 
                         if (!base64Image) {
                             console.error('❌ No photo was captured');
-                            await session.audio.speak("Visage couldn't capture a photo");
+                            session.audio.speak("Visage couldn't capture a photo", {
+                                voice_id: 'jqcCZkN6Knx8BJ5TBdYR', 
+                                voice_settings:{
+                                    stability: 1,
+                                    similarity_boost: 0.9,
+                                    style: 0.9,
+                                    use_speaker_boost: true,
+                                    speed: 0.9,
+                                }
+                            }).catch(console.error);
                             return;
                         }
 
@@ -211,16 +230,43 @@ class MentraOSApp extends AppServer {
                             if (!response.ok) {
                                 const errorText = await response.text();
                                 console.error(`❌ Backend error: ${response.status} — ${errorText}`);
-                                await session.audio.speak("Visage couldn't save that information");
+                                session.audio.speak("Visage couldn't save that information", {
+                                    voice_id: 'jqcCZkN6Knx8BJ5TBdYR', 
+                                    voice_settings:{
+                                        stability: 1,
+                                        similarity_boost: 0.9,
+                                        style: 0.9,
+                                        use_speaker_boost: true,
+                                        speed: 0.9,
+                                    }
+                                }).catch(console.error);
                                 return;
                             }
 
                             const result = await response.json();
                             console.log('✅ Saved to database:', result);
-                            await session.audio.speak(`Visage will remember ${personInfo.name || 'them'}`);
+                            session.audio.speak(`Visage will remember ${personInfo.name || 'them'}`, {
+                                voice_id: 'jqcCZkN6Knx8BJ5TBdYR', 
+                                voice_settings:{
+                                    stability: 1,
+                                    similarity_boost: 0.9,
+                                    style: 0.9,
+                                    use_speaker_boost: true,
+                                    speed: 0.9,
+                                }
+                            }).catch(console.error);
                         } catch (fetchError) {
                             console.error('❌ Failed to connect to backend:', fetchError);
-                            await session.audio.speak("Visage couldn't save that information");
+                            session.audio.speak("Visage couldn't save that information", {
+                                voice_id: 'jqcCZkN6Knx8BJ5TBdYR', 
+                                voice_settings:{
+                                    stability: 1,
+                                    similarity_boost: 0.9,
+                                    style: 0.9,
+                                    use_speaker_boost: true,
+                                    speed: 0.9,
+                                }
+                            }).catch(console.error);
                         }
 
                         this.conversationBuffer = [];
@@ -237,14 +283,10 @@ class MentraOSApp extends AppServer {
             // Workflow 2: Recognize person (MUST come before Query to handle "who is this")
             if (this.RECOGNIZE_PHRASES.some(phrase => command.includes(phrase))){
                 try{
-                    // Turn off LED before capturing
-                    if (session.capabilities?.hasLight) {
-                        await session.led.turnOff();
-                    }
-                    
+                    await session.led.turnOff();
                     const photo = await session.camera.requestPhoto({
-                        size: 'small',
-                        compress: 'medium'
+                        size: 'medium',
+                        compress: 'none'
                     });
 
                     console.log(`📸 Photo captured for recognition: ${photo.filename}`);
@@ -266,23 +308,59 @@ class MentraOSApp extends AppServer {
                     if (!response.ok){
                         const errorText = await response.text();
                         console.error(`❌ Recognition failed: ${response.status} — ${errorText}`);
-                        await session.audio.speak("Visage couldn't recognize this person");
+                        session.audio.speak("Visage couldn't recognize this person", {
+                            voice_id: 'jqcCZkN6Knx8BJ5TBdYR', 
+                            voice_settings:{
+                                stability: 1,
+                                similarity_boost: 0.9,
+                                style: 0.9,
+                                use_speaker_boost: true,
+                                speed: 0.9,
+                            }
+                        }).catch(console.error);
                         return;
                     }
 
                     const result = await response.json() as RecognitionResult;
 
                     if (result.recognized && result.person){
-                        await session.audio.speak(
-                            `That's ${result.person.name}. ${result.person.conversation_context}`
-                        );
+                        session.audio.speak(
+                            `That's ${result.person.name}. ${result.person.conversation_context}`, {
+                                voice_id: 'jqcCZkN6Knx8BJ5TBdYR', 
+                                voice_settings:{
+                                    stability: 1,
+                                    similarity_boost: 0.9,
+                                    style: 0.9,
+                                    use_speaker_boost: true,
+                                    speed: 0.9,
+                                }
+                            }
+                        ).catch(console.error);
                     }else {
-                        await session.audio.speak("I don't think we've met them before");
+                        session.audio.speak("I don't think we've met them before", {
+                            voice_id: 'jqcCZkN6Knx8BJ5TBdYR', 
+                            voice_settings:{
+                                stability: 1,
+                                similarity_boost: 0.9,
+                                style: 0.9,
+                                use_speaker_boost: true,
+                                speed: 0.9,
+                            }
+                        }).catch(console.error);
                     }
 
                 }catch (err){
                     console.error('❌ Recognition failed:', err);
-                    await session.audio.speak("I couldn't recognize this person");
+                    session.audio.speak("I couldn't recognize this person", {
+                        voice_id: 'jqcCZkN6Knx8BJ5TBdYR', 
+                        voice_settings:{
+                            stability: 1,
+                            similarity_boost: 0.9,
+                            style: 0.9,
+                            use_speaker_boost: true,
+                            speed: 0.9,
+                        }
+                    }).catch(console.error);
                 }
                 return; // Don't continue to other workflows
             }
@@ -290,10 +368,19 @@ class MentraOSApp extends AppServer {
             // Workflow 3: Query person by name
             if (this.QUERY_PHRASES.some(phrase => command.includes(phrase))) {
                 try {
-                    const name = await extractNameFromQuery(command);
+                    const name = extractNameFromQuery(command);
 
                     if (!name) {
-                        session.audio.speak("I didn't catch the name").catch(console.error);
+                        session.audio.speak("I didn't catch the name", {
+                            voice_id: 'jqcCZkN6Knx8BJ5TBdYR', 
+                            voice_settings:{
+                                stability: 1,
+                                similarity_boost: 0.9,
+                                style: 0.9,
+                                use_speaker_boost: true,
+                                speed: 0.9,
+                            }
+                        }).catch(console.error);
                         return;
                     }
 
@@ -305,7 +392,16 @@ class MentraOSApp extends AppServer {
                     });
 
                     if (!response.ok) {
-                        session.audio.speak("I couldn't find that person").catch(console.error);
+                        session.audio.speak("I couldn't find that person", {
+                            voice_id: 'jqcCZkN6Knx8BJ5TBdYR', 
+                            voice_settings:{
+                                stability: 1,
+                                similarity_boost: 0.9,
+                                style: 0.9,
+                                use_speaker_boost: true,
+                                speed: 0.9,
+                            }
+                        }).catch(console.error);
                         return;
                     }
 
@@ -313,18 +409,110 @@ class MentraOSApp extends AppServer {
 
                     if (person && person.name) {
                         session.audio.speak(
-                            `${person.name}. ${person.conversation_context || 'No additional information available'}`
+                            `${person.name}. ${person.conversation_context || 'No additional information available'}`, {
+                                voice_id: 'jqcCZkN6Knx8BJ5TBdYR', 
+                                voice_settings:{
+                                    stability: 1,
+                                    similarity_boost: 0.9,
+                                    style: 0.9,
+                                    use_speaker_boost: true,
+                                    speed: 0.9,
+                                }
+                            }
                         ).catch(console.error);
                     } else {
-                        session.audio.speak("I don't have any information about that person").catch(console.error);
+                        session.audio.speak("I don't have any information about that person", {
+                            voice_id: 'jqcCZkN6Knx8BJ5TBdYR', 
+                            voice_settings:{
+                                stability: 1,
+                                similarity_boost: 0.9,
+                                style: 0.9,
+                                use_speaker_boost: true,
+                                speed: 0.9,
+                            }
+                        }).catch(console.error);
                     }
                 } catch (err) {
                     console.error('❌ Query failed:', err);
-                    session.audio.speak("I couldn't look that up right now").catch(console.error);
+                    session.audio.speak("I couldn't look that up right now", {
+                        voice_id: 'jqcCZkN6Knx8BJ5TBdYR', 
+                        voice_settings:{
+                            stability: 1,
+                            similarity_boost: 0.9,
+                            style: 0.9,
+                            use_speaker_boost: true,
+                            speed: 0.9,
+                        }
+                    }).catch(console.error);
                 }
                 return; // Don't continue to other workflows
             }
 
+            // Workflow 4: Delete person by name
+            if (this.DELETE_PHRASES.some(phrase => command.includes(phrase))) {
+                try {
+                    const name = extractNameFromQuery(command);
+
+                    if (!name) {
+                        session.audio.speak("I didn't catch the name", {
+                            voice_id: 'jqcCZkN6Knx8BJ5TBdYR', 
+                            voice_settings:{
+                                stability: 1,
+                                similarity_boost: 0.9,
+                                style: 0.9,
+                                use_speaker_boost: true,
+                                speed: 0.9,
+                            }
+                        }).catch(console.error);
+                        return;
+                    }
+
+                    const response = await fetch(`${config.BACKEND_URL}/api/people/delete?name=${encodeURIComponent(name)}&user_id=${encodeURIComponent(this.currentUserId || '')}`, {
+                        method: 'DELETE',
+                        headers: {
+                            "Authorization": `Bearer ${config.BACKEND_AUTH_TOKEN}`
+                        }
+                    });
+
+                    if (!response.ok) {
+                        session.audio.speak("I couldn't delete that person", {
+                            voice_id: 'jqcCZkN6Knx8BJ5TBdYR', 
+                            voice_settings:{
+                                stability: 1,
+                                similarity_boost: 0.9,
+                                style: 0.9,
+                                use_speaker_boost: true,
+                                speed: 0.9,
+                            }
+                        }).catch(console.error);
+                        return;
+                    }
+
+                    session.audio.speak(`I've forgotten about ${name}`, {
+                        voice_id: 'jqcCZkN6Knx8BJ5TBdYR', 
+                        voice_settings:{
+                            stability: 1,
+                            similarity_boost: 0.9,
+                            style: 0.9,
+                            use_speaker_boost: true,
+                            speed: 0.9,
+                        }
+                    }).catch(console.error);
+                } catch (err) {
+                    console.error('❌ Delete failed:', err);
+                    session.audio.speak("I couldn't delete that person", {
+                        voice_id: 'jqcCZkN6Knx8BJ5TBdYR', 
+                        voice_settings:{
+                            stability: 1,
+                            similarity_boost: 0.9,
+                            style: 0.9,
+                            use_speaker_boost: true,
+                            speed: 0.9,
+                        }
+                    }).catch(console.error);
+                }
+                return; // Don't continue to other workflows
+            }
 
 
             // Trigger phrase to start collecting
@@ -334,12 +522,8 @@ class MentraOSApp extends AppServer {
                     this.conversationBuffer = [];
 
                     console.log('Starting photo request...');
-                    
-                    
-                    if (session.capabilities?.hasLight) {
-                        await session.led.turnOff();
-                    }
-                    
+
+                    session.led.turnOff();
                     session.camera.requestPhoto({
                         size: 'small',
                         compress: 'medium'
@@ -347,11 +531,19 @@ class MentraOSApp extends AppServer {
                         .then(photo => {
                             console.log(`Photo captured: ${photo.filename}`)
                             this.capturedPhoto = photo.buffer
-                            session.audio.speak("Photo Captured").catch(console.error);
                         })
                         .catch(err => {
                             console.error("Photo failed", err);
-                            session.audio.speak("Camera isn't available right now").catch(console.error);
+                            session.audio.speak("Camera isn't available right now", {
+                                voice_id: 'jqcCZkN6Knx8BJ5TBdYR', 
+                                voice_settings:{
+                                    stability: 1,
+                                    similarity_boost: 0.9,
+                                    style: 0.9,
+                                    use_speaker_boost: true,
+                                    speed: 0.9,
+                                }
+                            }).catch(console.error);
                         });
 
                     // Timeout after 20 seconds
@@ -368,7 +560,16 @@ class MentraOSApp extends AppServer {
 
                             if (!base64Image) {
                                 console.error('❌ No photo was captured');
-                                await session.audio.speak("Visage couldn't capture a photo");
+                                session.audio.speak("Visage couldn't capture a photo", {
+                                    voice_id: 'jqcCZkN6Knx8BJ5TBdYR', 
+                                    voice_settings:{
+                                        stability: 1,
+                                        similarity_boost: 0.9,
+                                        style: 0.9,
+                                        use_speaker_boost: true,
+                                        speed: 0.9,
+                                    }
+                                }).catch(console.error);
                                 this.conversationBuffer = [];
                                 return;
                             }
@@ -391,16 +592,43 @@ class MentraOSApp extends AppServer {
                                 if (!response.ok) {
                                     const errorText = await response.text();
                                     console.error(`❌ Backend error: ${response.status} - ${response.statusText}`);
-                                    await session.audio.speak("Visage failed to save that information");
+                                    session.audio.speak("Visage failed to save that information", {
+                                        voice_id: 'jqcCZkN6Knx8BJ5TBdYR', 
+                                        voice_settings:{
+                                            stability: 1,
+                                            similarity_boost: 0.9,
+                                            style: 0.9,
+                                            use_speaker_boost: true,
+                                            speed: 0.9,
+                                        }
+                                    }).catch(console.error);
                                     return;
                                 }
                                 
                                 const result = await response.json();
                                 console.log('✅ Saved to database:', result);
-                                await session.audio.speak(`Visage will remember ${personInfo.name || 'them'}`);
+                                session.audio.speak(`Visage will remember ${personInfo.name || 'them'}`, {
+                                    voice_id: 'jqcCZkN6Knx8BJ5TBdYR', 
+                                    voice_settings:{
+                                        stability: 1,
+                                        similarity_boost: 0.9,
+                                        style: 0.9,
+                                        use_speaker_boost: true,
+                                        speed: 0.9,
+                                    }
+                                }).catch(console.error);
                             } catch (fetchError) {
                                 console.error('❌ Failed to connect to backend:', fetchError);
-                                await session.audio.speak("Visage failed to save that information");
+                                session.audio.speak("Visage failed to save that information", {
+                                    voice_id: 'jqcCZkN6Knx8BJ5TBdYR', 
+                                    voice_settings:{
+                                        stability: 1,
+                                        similarity_boost: 0.9,
+                                        style: 0.9,
+                                        use_speaker_boost: true,
+                                        speed: 0.9,
+                                    }
+                                }).catch(console.error);
                             }
 
                             this.conversationBuffer = [];
@@ -415,8 +643,16 @@ class MentraOSApp extends AppServer {
 
         });
 
-        // Non-blocking audio announcement - don't wait for it to complete
-        session.audio.speak("Visage has started")
+        session.audio.speak("Welcome to Visage, your personal memory assistant", {
+            voice_id: 'jqcCZkN6Knx8BJ5TBdYR', 
+            voice_settings:{
+                stability: 1,
+                similarity_boost: 0.9,
+                style: 0.9,
+                use_speaker_boost: true,
+                speed: 0.9,
+            }
+        })
             .then(() => console.log("✅ Audio: 'Visage has started' played successfully"))
             .catch(err => console.log("⚠️ Audio failed (expected on emulator):", err.message));
         
