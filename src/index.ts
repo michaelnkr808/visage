@@ -142,7 +142,6 @@ class MentraOSApp extends AppServer {
         "who was",
         "remind me about",
         "what do i know about",
-        "who is",
     ];
 
     private readonly DELETE_PHRASES = [
@@ -156,6 +155,10 @@ class MentraOSApp extends AppServer {
     private conversationBuffer: string[] = []
     private isCollecting = false;
     private capturedPhoto: Buffer | null = null;
+    private pendingRecognitionPhoto: Promise<{buffer: Buffer, filename: string} | null> | null = null;
+    private pendingQueryFetch: Promise<Response | null> | null = null;
+    private pendingQueryName: string | null = null;
+    private partialCommandFired: 'recognize' | 'remember' | 'query' | null = null;
 
 
     constructor() {
@@ -174,7 +177,61 @@ class MentraOSApp extends AppServer {
         console.log("App has begun running");
 
         session.events.onTranscription(async (data) => {
-            if (!data.isFinal) return;
+            // --- PARTIAL: Pre-fire camera before isFinal to cut latency ---
+            if (!data.isFinal) {
+                if (this.isCollecting) return;
+                const partial = data.text.toLowerCase();
+
+                if (this.partialCommandFired === null && this.RECOGNIZE_PHRASES.some(phrase => partial.includes(phrase))) {
+                    this.partialCommandFired = 'recognize';
+                    console.log('⚡ Partial recognize detected — pre-firing camera');
+                    session.audio.speak("Checking").catch(console.error);
+                    this.pendingRecognitionPhoto = session.camera.requestPhoto({ size: 'medium', compress: 'none' })
+                        .then(photo => {
+                            console.log(`📸 Pre-captured recognition photo: ${photo.filename}`);
+                            return { buffer: photo.buffer, filename: photo.filename };
+                        })
+                        .catch(err => {
+                            console.error('❌ Pre-capture failed:', err);
+                            return null;
+                        });
+                } else if (this.partialCommandFired === null && this.REMEMBER_PHRASES.some(phrase => partial.includes(phrase))) {
+                    this.partialCommandFired = 'remember';
+                    console.log('⚡ Partial remember detected — pre-firing camera');
+                    this.capturedPhoto = null;
+                    session.camera.requestPhoto({ size: 'medium', compress: 'none' })
+                        .then(photo => {
+                            console.log(`📸 Pre-captured remember photo: ${photo.filename}`);
+                            this.capturedPhoto = photo.buffer;
+                        })
+                        .catch(err => console.error('❌ Pre-capture failed:', err));
+                } else if (this.partialCommandFired === null && this.QUERY_PHRASES.some(phrase => partial.includes(phrase))) {
+                    const name = extractNameFromQuery(partial);
+                    if (name) {
+                        this.partialCommandFired = 'query';
+                        this.pendingQueryName = name;
+                        console.log(`⚡ Partial query detected — pre-fetching info for "${name}"`);
+                        this.pendingQueryFetch = fetch(
+                            `${config.BACKEND_URL}/api/people/search?name=${encodeURIComponent(name)}&user_id=${encodeURIComponent(this.currentUserId || '')}`,
+                            { headers: { "Authorization": `Bearer ${config.BACKEND_AUTH_TOKEN}` } }
+                        ).catch(err => {
+                            console.error('❌ Pre-fetch failed:', err);
+                            return null;
+                        });
+                    }
+                }
+                return;
+            }
+
+            // isFinal — snapshot and reset partial state
+            const hadPartialFire = this.partialCommandFired;
+            this.partialCommandFired = null;
+            const pendingPhoto = this.pendingRecognitionPhoto;
+            this.pendingRecognitionPhoto = null;
+            const pendingQueryFetch = this.pendingQueryFetch;
+            const pendingQueryName = this.pendingQueryName;
+            this.pendingQueryFetch = null;
+            this.pendingQueryName = null;
 
             console.log('Transcription received:', data.text, 'isFinal:', data.isFinal);
 
@@ -283,15 +340,32 @@ class MentraOSApp extends AppServer {
             // Workflow 2: Recognize person (MUST come before Query to handle "who is this")
             if (this.RECOGNIZE_PHRASES.some(phrase => command.includes(phrase))){
                 try{
-                    await session.led.turnOff();
-                    const photo = await session.camera.requestPhoto({
-                        size: 'medium',
-                        compress: 'none'
-                    });
+                    let photoBuffer: Buffer;
+                    let photoFilename: string;
 
-                    console.log(`📸 Photo captured for recognition: ${photo.filename}`);
-                    
-                    const base64Image = photo.buffer.toString('base64');
+                    if (pendingPhoto) {
+                        console.log('⚡ Awaiting pre-captured recognition photo');
+                        const prePhoto = await pendingPhoto;
+                        if (prePhoto) {
+                            photoBuffer = prePhoto.buffer;
+                            photoFilename = prePhoto.filename;
+                        } else {
+                            // Pre-capture failed — take a fresh photo
+                            await session.led.turnOff();
+                            const photo = await session.camera.requestPhoto({ size: 'medium', compress: 'none' });
+                            photoBuffer = photo.buffer;
+                            photoFilename = photo.filename;
+                        }
+                    } else {
+                        await session.led.turnOff();
+                        const photo = await session.camera.requestPhoto({ size: 'medium', compress: 'none' });
+                        photoBuffer = photo.buffer;
+                        photoFilename = photo.filename;
+                    }
+
+                    console.log(`📸 Photo for recognition: ${photoFilename}`);
+
+                    const base64Image = photoBuffer.toString('base64');
 
                     const response = await fetch(`${config.BACKEND_URL}/api/workflow2/recognize`, {
                         method: "POST",
@@ -368,11 +442,12 @@ class MentraOSApp extends AppServer {
             // Workflow 3: Query person by name
             if (this.QUERY_PHRASES.some(phrase => command.includes(phrase))) {
                 try {
-                    const name = extractNameFromQuery(command);
+                    // Use name from partial pre-fetch if available, otherwise extract from final
+                    const name = extractNameFromQuery(command) || pendingQueryName;
 
                     if (!name) {
                         session.audio.speak("I didn't catch the name", {
-                            voice_id: 'jqcCZkN6Knx8BJ5TBdYR', 
+                            voice_id: 'jqcCZkN6Knx8BJ5TBdYR',
                             voice_settings:{
                                 stability: 1,
                                 similarity_boost: 0.9,
@@ -384,12 +459,23 @@ class MentraOSApp extends AppServer {
                         return;
                     }
 
-                    // Query backend for person info
-                    const response = await fetch(`${config.BACKEND_URL}/api/people/search?name=${encodeURIComponent(name)}&user_id=${encodeURIComponent(this.currentUserId || '')}`, {
-                        headers: {
-                            "Authorization": `Bearer ${config.BACKEND_AUTH_TOKEN}`
+                    // Use pre-fetched result if name matches, otherwise query now
+                    let response: Response;
+                    if (pendingQueryFetch && pendingQueryName === name) {
+                        console.log(`⚡ Awaiting pre-fetched query for "${name}"`);
+                        const preResponse = await pendingQueryFetch;
+                        if (preResponse) {
+                            response = preResponse;
+                        } else {
+                            response = await fetch(`${config.BACKEND_URL}/api/people/search?name=${encodeURIComponent(name)}&user_id=${encodeURIComponent(this.currentUserId || '')}`, {
+                                headers: { "Authorization": `Bearer ${config.BACKEND_AUTH_TOKEN}` }
+                            });
                         }
-                    });
+                    } else {
+                        response = await fetch(`${config.BACKEND_URL}/api/people/search?name=${encodeURIComponent(name)}&user_id=${encodeURIComponent(this.currentUserId || '')}`, {
+                            headers: { "Authorization": `Bearer ${config.BACKEND_AUTH_TOKEN}` }
+                        });
+                    }
 
                     if (!response.ok) {
                         session.audio.speak("I couldn't find that person", {
@@ -521,30 +607,33 @@ class MentraOSApp extends AppServer {
                     this.isCollecting = true;
                     this.conversationBuffer = [];
 
-                    console.log('Starting photo request...');
-
-                    session.led.turnOff();
-                    session.camera.requestPhoto({
-                        size: 'small',
-                        compress: 'medium'
-                    })
-                        .then(photo => {
-                            console.log(`Photo captured: ${photo.filename}`)
-                            this.capturedPhoto = photo.buffer
+                    if (hadPartialFire === 'remember' && this.capturedPhoto) {
+                        console.log('⚡ Using pre-captured remember photo');
+                    } else {
+                        console.log('Starting photo request...');
+                        session.led.turnOff();
+                        session.camera.requestPhoto({
+                            size: 'medium',
+                            compress: 'none'
                         })
-                        .catch(err => {
-                            console.error("Photo failed", err);
-                            session.audio.speak("Camera isn't available right now", {
-                                voice_id: 'jqcCZkN6Knx8BJ5TBdYR', 
-                                voice_settings:{
-                                    stability: 1,
-                                    similarity_boost: 0.9,
-                                    style: 0.9,
-                                    use_speaker_boost: true,
-                                    speed: 0.9,
-                                }
-                            }).catch(console.error);
-                        });
+                            .then(photo => {
+                                console.log(`Photo captured: ${photo.filename}`)
+                                this.capturedPhoto = photo.buffer
+                            })
+                            .catch(err => {
+                                console.error("Photo failed", err);
+                                session.audio.speak("Camera isn't available right now", {
+                                    voice_id: 'jqcCZkN6Knx8BJ5TBdYR',
+                                    voice_settings:{
+                                        stability: 1,
+                                        similarity_boost: 0.9,
+                                        style: 0.9,
+                                        use_speaker_boost: true,
+                                        speed: 0.9,
+                                    }
+                                }).catch(console.error);
+                            });
+                    }
 
                     // Timeout after 20 seconds
                     setTimeout(async () => {

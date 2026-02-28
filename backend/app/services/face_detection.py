@@ -17,8 +17,8 @@ def _preprocess_image(img: np.ndarray) -> np.ndarray:
     Upscaling helps InsightFace detect distant/small faces.
     """
     h, w = img.shape[:2]
-    if w < 1280 or h < 1280:
-        scale = max(1280 / w, 1280 / h)
+    if w < 640 or h < 640:
+        scale = max(640 / w, 640 / h)
         new_w, new_h = int(w * scale), int(h * scale)
         img = cv.resize(img, (new_w, new_h), interpolation=cv.INTER_CUBIC)
         print(f"📐 Upscaled image from {w}x{h} to {new_w}x{new_h}")

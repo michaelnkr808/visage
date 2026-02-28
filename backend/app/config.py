@@ -10,10 +10,10 @@ class Config:
     DATABASE_URL = os.getenv("DATABASE_URL")
     
     # InsightFace Settings
-    FACE_MATCH_THRESHOLD = float(os.getenv("FACE_MATCH_THRESHOLD", "0.4"))
+    FACE_MATCH_THRESHOLD = float(os.getenv("FACE_MATCH_THRESHOLD", "0.55"))
     """
     Distance threshold for face matching (L2 distance on normalized embeddings)
-    - buffalo_l normalized embeddings: typical range 0.35-0.45
+    - buffalo_l same-person distances typically 0.3-0.6 across angles/lighting
     - Lower values = stricter matching (fewer false positives)
     - Higher values = looser matching (more false positives)
     """
